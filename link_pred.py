@@ -12,12 +12,25 @@ from scipy.io.matlab import loadmat
 from scipy.sparse import lil_matrix
 from sklearn.metrics import precision_recall_curve, auc
 from rescal import rescal_als
+import argparse
 
 
-def predict_rescal_als(T):
+parser = argparse.ArgumentParser(
+    description='RESCAL link prediction experiment'
+)
+
+parser.add_argument('--rank', type=int, default='20', metavar='',
+                    help='rank of reconstructed tensor (default: 20)')
+parser.add_argument('--dataset', default='kinships', metavar='',
+                    help='dataset to be used: {"kinships", "nations", "umls"} (default: kinships)')
+
+args = parser.parse_args()
+
+
+def predict_rescal_als(T, rank):
     A, R, _, _, _ = rescal_als(
-        T, 100, init='nvecs', conv=1e-3,
-        lambda_A=10, lambda_R=10
+        T, rank, init='nvecs', conv=1e-3,
+        lambda_A=0.01, lambda_R=0.01
     )
     n = A.shape[0]
     P = zeros((n, n, len(R)))
@@ -36,7 +49,7 @@ def normalize_predictions(P, e, k):
     return P
 
 
-def innerfold(T, mask_idx, target_idx, e, k, sz):
+def innerfold(T, mask_idx, target_idx, e, k, sz, rank):
     Tc = [Ti.copy() for Ti in T]
     mask_idx = np.unravel_index(mask_idx, (e, e, k))
     target_idx = np.unravel_index(target_idx, (e, e, k))
@@ -46,7 +59,7 @@ def innerfold(T, mask_idx, target_idx, e, k, sz):
         Tc[mask_idx[2][i]][mask_idx[0][i], mask_idx[1][i]] = 0
 
     # predict unknown values
-    P = predict_rescal_als(Tc)
+    P = predict_rescal_als(Tc, rank)
     P = normalize_predictions(P, e, k)
 
     # compute area under precision recall curve
@@ -55,9 +68,24 @@ def innerfold(T, mask_idx, target_idx, e, k, sz):
 
 
 if __name__ == '__main__':
+    # Load data
+    name2dataset = {
+        'kinships': 'alyawarradata',
+        'nations': 'dnations',
+        'umls': 'uml'
+    }
+
     # load data
-    mat = loadmat('data/alyawarradata.mat')
-    K = array(mat['Rs'], np.float32)
+    mat = loadmat('data/{}.mat'.format(name2dataset[args.dataset]))
+
+    try:
+        K = array(mat['Rs'], np.float32)  # Original tensor
+    except:
+        K = array(mat['R'], np.float32)
+
+    # Handle nan values
+    # K[np.isnan(K)] = 0
+
     e, k = K.shape[0], K.shape[2]
     SZ = e * e * k
 
@@ -72,7 +100,7 @@ if __name__ == '__main__':
     )
 
     # Do cross-validation
-    FOLDS = 10
+    FOLDS = 5
     IDX = list(range(SZ))
     shuffle(IDX)
 
@@ -86,9 +114,9 @@ if __name__ == '__main__':
         shuffle(idx_train)
         idx_train = idx_train[:fsz].tolist()
         _log.info('Train Fold %d' % f)
-        AUC_train[f] = innerfold(T, idx_train + idx_test, idx_train, e, k, SZ)
+        AUC_train[f] = innerfold(T, idx_train + idx_test, idx_train, e, k, SZ, args.rank)
         _log.info('Test Fold %d' % f)
-        AUC_test[f] = innerfold(T, idx_test, idx_test, e, k, SZ)
+        AUC_test[f] = innerfold(T, idx_test, idx_test, e, k, SZ, args.rank)
 
         offset += fsz
 

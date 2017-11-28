@@ -19,6 +19,8 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('--rank', type=int, default='20', metavar='',
                     help='rank of reconstructed tensor (default: 20)')
+parser.add_argument('--dataset', default='kinships', metavar='',
+                    help='dataset to be used: {"kinships", "nations", "umls"} (default: kinships)')
 
 args = parser.parse_args()
 
@@ -28,9 +30,23 @@ def unfold(X, k=0):
     return X.swapaxes(0, k).reshape(X.shape[k], -1)
 
 
+name2dataset = {
+    'kinships': 'alyawarradata',
+    'nations': 'dnations',
+    'umls': 'uml'
+}
+
 # load data
-mat = loadmat('data/alyawarradata.mat')
-K = array(mat['Rs'], np.float32)  # Original tensor
+mat = loadmat('data/{}.mat'.format(name2dataset[args.dataset]))
+
+try:
+    K = array(mat['Rs'], np.float32)  # Original tensor
+except:
+    K = array(mat['R'], np.float32)
+
+# Handle nan values
+K[np.isnan(K)] = 0
+
 e, k = K.shape[0], K.shape[2]
 
 # construct array for rescal
